@@ -28,6 +28,9 @@ export default function Home() {
           Sit. Breathe. You are not alone.
         </p>
 
+        {/* ✅ SHADOW HINT (timeless) */}
+        <div style={styles.shadowHint}>The field gathers weekly.</div>
+
         {/* MICRO DISCLAIMER (optional, very WAOC) */}
         <div style={styles.microLine}>
           No accounts. No scores. No tracking.
@@ -42,7 +45,11 @@ export default function Home() {
 
           <button
             style={styles.cta}
-            onClick={() => nav("/session", { state: { intent: "awareness", mode: "Solo (in the Field)", durationMin: 10 } })}
+            onClick={() =>
+              nav("/session", {
+                state: { intent: "awareness", mode: "Solo (in the Field)", durationMin: 10 },
+              })
+            }
           >
             Enter the Field
           </button>
@@ -112,6 +119,17 @@ const styles = {
     fontWeight: 650,
     letterSpacing: "0.01em",
     marginBottom: 8,
+  },
+
+  /* ✅ 新增：影子提示（不出现具体时间） */
+  shadowHint: {
+    marginTop: 2,
+    marginBottom: 18,
+    fontSize: 13,
+    color: "rgba(11,15,26,0.38)",
+    fontStyle: "italic",
+    letterSpacing: "0.02em",
+    userSelect: "none",
   },
 
   microLine: {

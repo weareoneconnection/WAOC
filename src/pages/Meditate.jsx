@@ -1,105 +1,124 @@
 // src/pages/Meditate.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { playAmbient, pauseAmbient, setAmbientVolume, isPlaying } from "../utils/audioEngine.js";
 
-/**
- * WAOC Meditate (extreme upgraded)
- * - 3 phases: arriving -> breathing -> closing
- * - Breath cadence selectable (inhale/exhale)
- * - Pause/Resume/Restart/Finish
- * - Optional WebAudio sound engine (no external files)
- * - Compatible with location.state OR location.state.preset
- */
+const SOUND_MAP = {
+  Silence: null,
+  Ocean: "/audio/ambient/ocean.mp3",
+  Rain: "/audio/ambient/rain.mp3",
+  Wind: "/audio/ambient/wind.mp3",
+  "Brown Noise": "/audio/ambient/brown-noise.mp3",
+};
+
+const CADENCES = [
+  { key: "4-4", inhale: 4, exhale: 4 },
+  { key: "4-6", inhale: 4, exhale: 6 },
+  { key: "4-8", inhale: 4, exhale: 8 },
+];
 
 export default function Meditate() {
   const nav = useNavigate();
-  const location = useLocation();
+  const { state } = useLocation();
 
-  // ✅兼容两种传参结构：state.preset 或 state 直接字段
-  const incoming = location.state?.preset ?? location.state ?? {};
-  const intent = incoming.intent ?? "awareness";
-  const mode = incoming.mode ?? "Solo (in the Field)";
-  const sound = incoming.sound ?? "Silence";
-  const durationMin = Number(incoming.durationMin ?? 10);
+  const intent = state?.intent ?? "awareness";
+  const durationMin = Number(state?.durationMin ?? 10);
+  const mode = state?.mode ?? "Solo (in the Field)";
+  const sound = state?.sound ?? "Silence";
 
-  // ---- timing ----
-  const totalSec = useMemo(() => Math.max(60, Math.round(durationMin * 60)), [durationMin]);
-
-  // phases: arriving (short) | breathing (main) | closing (short)
-  const ARRIVE_SEC = 8;
-  const CLOSING_SEC = 10;
-
-  const [phase, setPhase] = useState("arriving"); // arriving | breathing | closing
-  const [running, setRunning] = useState(true);
+  const totalSec = useMemo(() => Math.max(60, durationMin * 60), [durationMin]);
   const [secLeft, setSecLeft] = useState(totalSec);
+  const [running, setRunning] = useState(true);
+  const [phase, setPhase] = useState("ARRIVING"); // ARRIVING | RUNNING | COMPLETE
+  const tickRef = useRef(null);
 
-  // Breath cadence (inhale / exhale)
-  const [cadence, setCadence] = useState("4-6"); // 4-4 | 4-6 | 4-8
-  const cadenceMs = useMemo(() => {
-    const [inh, exh] = cadence.split("-").map((x) => Math.max(2, Number(x)));
-    return { inhaleMs: inh * 1000, exhaleMs: exh * 1000, cycleMs: (inh + exh) * 1000 };
-  }, [cadence]);
+  const [cadenceKey, setCadenceKey] = useState("4-6");
+  const cadence = useMemo(() => CADENCES.find((c) => c.key === cadenceKey) ?? CADENCES[1], [cadenceKey]);
 
-  // breath direction
-  const [breathDir, setBreathDir] = useState("inhale"); // inhale | exhale
-  const breathCycleRef = useRef({ t0: performance.now() });
+  // audio
+  const audioSrc = SOUND_MAP[sound] ?? null;
+  const [vol, setVol] = useState(0.35);
+  const [audioOn, setAudioOn] = useState(false);
 
-  // sound engine (web audio)
-  const soundEngine = useSoundEngine(sound, running);
+  const intentLabel = useMemo(() => {
+    const map = { peace: "Peace", unity: "Unity", awareness: "Awareness", compassion: "Compassion" };
+    return map[intent] ?? "Awareness";
+  }, [intent]);
 
-  // phase management
+  const centerLabel = useMemo(() => {
+    if (phase === "ARRIVING") return "ARRIVING";
+    if (phase === "COMPLETE") return "COMPLETE";
+    return running ? "RUNNING" : "PAUSED";
+  }, [phase, running]);
+
+  function getSubtitle() {
+    if (phase === "ARRIVING") return "Nothing is required. Only attention.";
+    if (phase === "COMPLETE") return "Thank you. The field remembers you.";
+    return `Inhale ${cadence.inhale}s · Exhale ${cadence.exhale}s`;
+  }
+
+  // ✅ guarantee audio is aligned with selected sound
   useEffect(() => {
-    // Arriving automatically transitions to breathing
-    const id = setTimeout(() => {
-      setPhase("breathing");
-    }, ARRIVE_SEC * 1000);
-    return () => clearTimeout(id);
-  }, []);
+    if (!audioSrc) {
+      pauseAmbient();
+      setAudioOn(false);
+      return;
+    }
+    (async () => {
+      const ok = await playAmbient(audioSrc, { volume: vol });
+      setAudioOn(ok || isPlaying());
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioSrc]);
 
-  // main timer
+  useEffect(() => {
+    setAmbientVolume(vol);
+  }, [vol]);
+
+  // ARRIVING -> RUNNING
+  useEffect(() => {
+    if (phase !== "ARRIVING") return;
+    const t = setTimeout(() => setPhase("RUNNING"), 1100);
+    return () => clearTimeout(t);
+  }, [phase]);
+
+  // timer
   useEffect(() => {
     if (!running) return;
-    const id = setInterval(() => {
+    if (phase === "COMPLETE") return;
+
+    tickRef.current = setInterval(() => {
       setSecLeft((s) => Math.max(0, s - 1));
     }, 1000);
-    return () => clearInterval(id);
-  }, [running]);
 
-  useEffect(() => {
-    if (secLeft === 0) setPhase("closing");
-  }, [secLeft]);
-
-  // breath direction loop (sync with cadence)
-  useEffect(() => {
-    if (phase !== "breathing") return;
-
-    let raf = 0;
-    const tick = () => {
-      const now = performance.now();
-      const elapsed = now - breathCycleRef.current.t0;
-      const cycle = cadenceMs.cycleMs;
-      const t = elapsed % cycle;
-
-      const inhaleEnd = cadenceMs.inhaleMs;
-      const dir = t < inhaleEnd ? "inhale" : "exhale";
-      setBreathDir(dir);
-
-      raf = requestAnimationFrame(tick);
+    return () => {
+      if (tickRef.current) clearInterval(tickRef.current);
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, [phase, cadenceMs]);
+  }, [running, phase]);
 
-  // keyboard shortcuts
+  // complete
+  useEffect(() => {
+    if (secLeft !== 0) return;
+    if (phase === "COMPLETE") return;
+
+    setPhase("COMPLETE");
+    setRunning(false);
+
+    // product choice: end -> silence
+    pauseAmbient();
+    setAudioOn(false);
+  }, [secLeft, phase]);
+
+  // keyboard
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === " ") {
+      if (e.code === "Space") {
         e.preventDefault();
         setRunning((v) => !v);
       }
-      if (e.key === "Escape") {
+      if (e.code === "Escape") {
         e.preventDefault();
-        nav("/session", { state: { preset: incoming } });
+        onBack();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -107,625 +126,222 @@ export default function Meditate() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // closing auto-finish
-  useEffect(() => {
-    if (phase !== "closing") return;
-    const id = setTimeout(() => {
-      nav("/session", { state: { preset: incoming } });
-    }, CLOSING_SEC * 1000);
-    return () => clearTimeout(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase]);
+  function onBack() {
+    pauseAmbient();
+    nav("/session");
+  }
 
-  // display
-  const mm = String(Math.floor(secLeft / 60)).padStart(2, "0");
-  const ss = String(secLeft % 60).padStart(2, "0");
-  const progress = 1 - secLeft / totalSec; // 0..1
-
-  const guidance = useMemo(() => {
-    if (phase === "arriving") return "Nothing is required. Only attention.";
-    if (phase === "closing") return "Carry the field into the next moment.";
-    // breathing
-    if (breathDir === "inhale") return inhaleLine(intent);
-    return exhaleLine(intent);
-  }, [phase, breathDir, intent]);
-
-  const title = useMemo(() => {
-    if (phase === "arriving") return "Arriving";
-    if (phase === "closing") return "Closing";
-    return breathDir === "inhale" ? "Inhale" : "Exhale";
-  }, [phase, breathDir]);
-
-  // actions
-  const onBack = () => nav("/session", { state: { preset: incoming } });
-  const onFinish = () => {
-    setPhase("closing");
-    setRunning(false);
-    // fade out sound
-    soundEngine.stopSoft();
-  };
-  const onRestart = () => {
+  function onRestart() {
     setSecLeft(totalSec);
+    setPhase("ARRIVING");
     setRunning(true);
-    setPhase("breathing");
-    breathCycleRef.current.t0 = performance.now();
-    soundEngine.restartIfNeeded();
-  };
+
+    if (audioSrc) {
+      playAmbient(audioSrc, { volume: vol }).then(() => setAudioOn(isPlaying()));
+    }
+  }
+
+  function onFinish() {
+    pauseAmbient();
+    setAudioOn(false);
+    nav("/session");
+  }
+
+  async function toggleAudio() {
+    if (!audioSrc) return;
+    if (audioOn) {
+      pauseAmbient();
+      setAudioOn(false);
+      return;
+    }
+    const ok = await playAmbient(audioSrc, { volume: vol });
+    setAudioOn(ok || isPlaying());
+  }
 
   return (
-    <div className="page pageFull">
-      <div className="topRow">
+    <div className="mPage">
+      <div className="mTop">
         <div>
-          <div className="kicker">MEDITATION</div>
-          <div className="h1">Enter the Field</div>
-          <div className="lead">Breathe. Notice. Return.</div>
+          <div className="mKicker">MEDITATION</div>
+          <div className="mH1">Enter the Field</div>
+          <div className="mLead">Breathe. Notice. Return.</div>
         </div>
 
-        <div className="fieldState">
-          <div className="tiny">Mode: {mode}</div>
-          <div className="tiny">Sound: {sound}</div>
-
-          <div className="pill">
-            <span className="pillStrong">{intentLabel(intent)}</span>
-            <span className="pillDot">•</span>
-            <span className="pillStrong">{mm}:{ss}</span>
+        <div className="mTopRight">
+          <div className="mMetaRow">
+            <span className="mTiny">Sound:</span> <span className="mStrong">{sound}</span>
+          </div>
+          <div className="mIntentPill">
+            <span className="mStrong">{intentLabel}</span>
+            <span className="mDot">•</span>
+            <span className="mTiny">{durationMin} min</span>
           </div>
         </div>
       </div>
 
-      <div className="meditateStage">
-        <div className="stageGrid">
-          {/* Orb */}
-          <div className="orbWrap">
-            <ProgressRing progress={progress} />
-
-            <div
-              className={[
-                "breathOrb",
-                phase,
-                running ? "running" : "paused",
-                breathDir,
-              ].join(" ")}
-              style={{
-                // Sync animation duration with cadence
-                ["--inhaleMs"]: `${cadenceMs.inhaleMs}ms`,
-                ["--exhaleMs"]: `${cadenceMs.exhaleMs}ms`,
-              }}
-            >
-              <div className="breathInner" />
-              <div className="breathText">
-                <div className="breathTitle">{title}</div>
-                <div className="breathSub">{guidance}</div>
-              </div>
-            </div>
-
-            <div className="micro">
-              <span>Space: {running ? "Pause" : "Resume"}</span>
-              <span className="dot">•</span>
-              <span>Esc: Exit</span>
+      <div className="mGrid">
+        <div className="mField">
+          <div className="mAura">
+            <div className="mAuraInner">
+              <div className="mBig">{centerLabel}</div>
+              <div className="mSub">{getSubtitle()}</div>
+              <div className="mTimer">{formatMMSS(secLeft)} remaining</div>
             </div>
           </div>
+          <div className="mHint">Space: Pause · Esc: Exit</div>
+        </div>
 
-          {/* Controls */}
-          <div className="panel">
-            <div className="panelTitle">Session Controls</div>
+        <div className="mPanel">
+          <div className="mPanelTitle">SESSION CONTROLS</div>
 
-            <div className="row">
-              <div className="label">Cadence</div>
-              <div className="seg">
-                {["4-4", "4-6", "4-8"].map((x) => (
-                  <button
-                    key={x}
-                    className={["segBtn", cadence === x ? "on" : ""].join(" ")}
-                    onClick={() => setCadence(x)}
-                    disabled={phase === "closing"}
-                  >
-                    {x}
-                  </button>
-                ))}
-              </div>
-              <div className="hint">Inhale–Exhale (seconds)</div>
+          <div className="mCard">
+            <div className="mCardTitle">CADENCE</div>
+            <div className="mPills">
+              {CADENCES.map((c) => (
+                <button
+                  key={c.key}
+                  className={`mPill ${cadenceKey === c.key ? "active" : ""}`}
+                  onClick={() => setCadenceKey(c.key)}
+                  type="button"
+                >
+                  {c.key}
+                </button>
+              ))}
             </div>
+            <div className="mTiny2">Inhale—Exhale (seconds)</div>
+          </div>
 
-            <div className="row">
-              <div className="label">State</div>
-              <div className="chips">
-                <span className="chip">{phaseLabel(phase)}</span>
-                <span className="chip">{running ? "Running" : "Paused"}</span>
-              </div>
-              <div className="hint">No tracking. Only resonance.</div>
-            </div>
-
-            <div className="actions">
-              <button className="btnGhost" onClick={onBack}>Back</button>
-              <button
-                className="btnGhost"
-                onClick={() => setRunning((v) => !v)}
-                disabled={phase === "closing"}
-              >
-                {running ? "Pause" : "Resume"}
+          <div className="mCard">
+            <div className="mCardTitle">STATE</div>
+            <div className="mPills">
+              <button className={`mPill ${!running ? "active" : ""}`} type="button" onClick={() => setRunning(false)}>
+                Paused
               </button>
-              <button className="btnGhost" onClick={onRestart}>Restart</button>
-              <button className="btnPrimary" onClick={onFinish}>Finish</button>
+              <button className={`mPill ${running ? "active" : ""}`} type="button" onClick={() => setRunning(true)}>
+                Running
+              </button>
             </div>
+            <div className="mTiny2">No tracking. Only resonance.</div>
+          </div>
 
-            <div className="waocBox">
-              <div className="waocTitle">WAOC Core</div>
-              <div className="waocLine">No addresses. No ranks. No counts.</div>
-              <div className="waocLine">Connection is the proof — not a reward.</div>
-              <div className="waocLine">You are sitting with others, even if you never met.</div>
+          <div className="mCard">
+            <div className="mCardTitle">AUDIO</div>
+            {audioSrc ? (
+              <>
+                <div className="mAudioRow">
+                  <button className="mBtnDark" type="button" onClick={toggleAudio}>
+                    {audioOn ? "Pause" : "Play"}
+                  </button>
+                  <div className="mTiny2">{audioOn ? "Playing" : "Stopped"}</div>
+                </div>
+
+                <div className="mVolRow">
+                  <span className="mTiny">Volume</span>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={vol}
+                    onChange={(e) => setVol(Number(e.target.value))}
+                    style={{ width: "100%" }}
+                  />
+                </div>
+              </>
+            ) : (
+              <div className="mTiny2">Silence is a valid sound.</div>
+            )}
+          </div>
+
+          <div className="mActions">
+            <button className="mBtn" onClick={onBack} type="button">
+              Back
+            </button>
+            <button className="mBtn" onClick={() => setRunning((v) => !v)} type="button">
+              {running ? "Pause" : "Resume"}
+            </button>
+            <button className="mBtn" onClick={onRestart} type="button">
+              Restart
+            </button>
+          </div>
+
+          <button className="mBtnPrimary" onClick={onFinish} type="button">
+            Finish
+          </button>
+
+          <div className="mCore">
+            <div className="mCoreK">WAOC CORE</div>
+            <div className="mCoreT">
+              No addresses. No ranks. No counts.
+              <br />
+              Connection is the proof — not a reward.
+              <br />
+              You are sitting with others, even if you never met.
             </div>
           </div>
         </div>
       </div>
 
-      {/* keyframes + styles */}
-      <style>{`
-        /* Layout */
-        .pageFull { padding-bottom: 28px; }
-        .topRow { display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; align-items:flex-start; }
-        .kicker { letter-spacing:.18em; font-size:12px; color:var(--muted); font-weight:900; }
-        .h1 { font-size:28px; font-weight:980; margin-top:6px; }
-        .lead { margin-top:8px; color:var(--muted); max-width:760px; line-height:1.45; }
-
-        .fieldState { text-align:right; min-width:280px; }
-        .tiny { font-size:12px; color:var(--muted); }
-        .pill {
-          margin-top:8px;
-          display:inline-flex; align-items:center; gap:10px;
-          border:1px solid var(--line);
-          border-radius:999px;
-          padding:10px 12px;
-          background:#fff;
-          font-weight:900;
-        }
-        .pillStrong { color:#111827; }
-        .pillDot { color:var(--muted); }
-
-        .meditateStage { margin-top:14px; }
-        .stageGrid {
-          display:grid;
-          grid-template-columns: 1.2fr .8fr;
-          gap:14px;
-          align-items:stretch;
-        }
-        @media (max-width: 980px){
-          .stageGrid{ grid-template-columns: 1fr; }
-          .fieldState{ text-align:left; }
-        }
-
-        /* Orb + Ring */
-        .orbWrap{
-          position:relative;
-          border:1px solid var(--line);
-          border-radius:16px;
-          background:#fff;
-          padding:18px;
-          overflow:hidden;
-          min-height: 420px;
-          display:flex;
-          align-items:center;
-          justify-content:center;
-          flex-direction:column;
-        }
-        .micro{
-          margin-top:14px;
-          font-size:12px;
-          color:var(--muted);
-          display:flex;
-          gap:10px;
-          align-items:center;
-          flex-wrap:wrap;
-          justify-content:center;
-        }
-        .micro .dot{ opacity:.6; }
-
-        /* Breath Orb */
-        .breathOrb{
-          position:relative;
-          width:min(420px, 90%);
-          aspect-ratio: 1 / 1;
-          border-radius:999px;
-          display:flex;
-          align-items:center;
-          justify-content:center;
-          isolation:isolate;
-          background: radial-gradient(circle at 30% 30%, rgba(255,255,255,.95), rgba(0,0,0,.06));
-          border:1px solid rgba(0,0,0,.08);
-          box-shadow: 0 24px 80px rgba(0,0,0,.08);
-        }
-        .breathInner{
-          position:absolute;
-          inset: 14%;
-          border-radius:999px;
-          background: radial-gradient(circle at 40% 30%, rgba(255,255,255,.7), rgba(0,0,0,.10));
-          border:1px solid rgba(0,0,0,.06);
-          z-index:1;
-        }
-        .breathText{
-          position:absolute;
-          inset: 0;
-          display:flex;
-          align-items:center;
-          justify-content:center;
-          flex-direction:column;
-          text-align:center;
-          padding: 18px;
-          z-index:2;
-        }
-        .breathTitle{
-          font-size:18px;
-          font-weight:980;
-          letter-spacing:.08em;
-          text-transform:uppercase;
-        }
-        .breathSub{
-          margin-top:8px;
-          max-width: 320px;
-          color: var(--muted);
-          line-height:1.45;
-          font-size: 13px;
-          font-weight: 700;
-        }
-
-        /* Phase flavors */
-        .breathOrb.arriving{
-          opacity:.98;
-        }
-        .breathOrb.closing{
-          opacity:.92;
-          filter: grayscale(.1);
-        }
-
-        /* Running/pause */
-        .breathOrb.paused{
-          transform: scale(0.99);
-          opacity: .92;
-        }
-
-        /* Breath motion synced with cadence */
-        .breathOrb.running.inhale{
-          animation: waocInhale var(--inhaleMs) ease-in-out infinite;
-        }
-        .breathOrb.running.exhale{
-          animation: waocExhale var(--exhaleMs) ease-in-out infinite;
-        }
-        .breathOrb.running.inhale .breathInner{
-          animation: waocInhaleInner var(--inhaleMs) ease-in-out infinite;
-        }
-        .breathOrb.running.exhale .breathInner{
-          animation: waocExhaleInner var(--exhaleMs) ease-in-out infinite;
-        }
-
-        @keyframes waocInhale {
-          0% { transform: scale(1.00); opacity: .70; }
-          100% { transform: scale(1.075); opacity: .95; }
-        }
-        @keyframes waocExhale {
-          0% { transform: scale(1.075); opacity: .95; }
-          100% { transform: scale(1.00); opacity: .70; }
-        }
-        @keyframes waocInhaleInner {
-          0% { transform: scale(1.00); opacity: .45; }
-          100% { transform: scale(.95); opacity: .78; }
-        }
-        @keyframes waocExhaleInner {
-          0% { transform: scale(.95); opacity: .78; }
-          100% { transform: scale(1.00); opacity: .45; }
-        }
-
-        /* Right panel */
-        .panel{
-          border:1px solid var(--line);
-          border-radius:16px;
-          background:#fff;
-          padding:14px;
-          display:flex;
-          flex-direction:column;
-          gap:12px;
-        }
-        .panelTitle{
-          font-size:14px;
-          font-weight:980;
-          letter-spacing:.12em;
-          text-transform:uppercase;
-        }
-        .row{
-          border:1px solid rgba(0,0,0,.08);
-          background: rgba(0,0,0,.02);
-          border-radius:14px;
-          padding:12px;
-        }
-        .label{
-          font-size:12px;
-          font-weight:980;
-          letter-spacing:.12em;
-          text-transform:uppercase;
-          color:#111827;
-        }
-        .hint{
-          margin-top:8px;
-          font-size:12px;
-          color:var(--muted);
-          font-weight: 700;
-        }
-        .seg{
-          margin-top:10px;
-          display:flex;
-          gap:10px;
-          flex-wrap:wrap;
-        }
-        .segBtn{
-          border:1px solid var(--line);
-          background:#fff;
-          border-radius:999px;
-          padding:10px 12px;
-          cursor:pointer;
-          font-weight:950;
-          color:#111827;
-        }
-        .segBtn.on{
-          background:#111827;
-          color:#fff;
-          border-color:#111827;
-        }
-        .segBtn:disabled{
-          opacity:.6;
-          cursor:not-allowed;
-        }
-
-        .chips{ margin-top:10px; display:flex; gap:10px; flex-wrap:wrap; }
-        .chip{
-          border:1px solid var(--line);
-          border-radius:999px;
-          padding:8px 10px;
-          font-weight:900;
-          background:#fff;
-        }
-
-        .actions{
-          display:flex;
-          gap:10px;
-          flex-wrap:wrap;
-        }
-        .btnPrimary{
-          background:#111827;
-          color:#fff;
-          border:none;
-          padding:10px 12px;
-          border-radius:12px;
-          cursor:pointer;
-          font-weight:950;
-        }
-        .btnGhost{
-          background:#fff;
-          border:1px solid var(--line);
-          color:#111827;
-          padding:10px 12px;
-          border-radius:12px;
-          cursor:pointer;
-          font-weight:900;
-        }
-        .btnGhost:disabled{
-          opacity:.6;
-          cursor:not-allowed;
-        }
-
-        .waocBox{
-          margin-top:auto;
-          border:1px solid rgba(0,0,0,.08);
-          border-radius:14px;
-          padding:12px;
-          background: rgba(255,255,255,.9);
-        }
-        .waocTitle{
-          font-size:12px;
-          font-weight:980;
-          letter-spacing:.12em;
-          text-transform:uppercase;
-          color:var(--muted);
-        }
-        .waocLine{
-          margin-top:6px;
-          font-weight:900;
-          color:#111827;
-          font-size:13px;
-        }
-      `}</style>
+      <style>{css}</style>
     </div>
   );
 }
 
-/* ---------- UI: Progress Ring ---------- */
-function ProgressRing({ progress }) {
-  const size = 520;
-  const r = 220;
-  const cx = size / 2;
-  const cy = size / 2;
-  const c = 2 * Math.PI * r;
-  const dash = c * (1 - clamp(progress, 0, 1));
-
-  return (
-    <svg
-      width="100%"
-      viewBox={`0 0 ${size} ${size}`}
-      style={{
-        position: "absolute",
-        inset: "-40px",
-        pointerEvents: "none",
-        opacity: 0.18,
-        filter: "blur(0px)",
-      }}
-    >
-      <circle
-        cx={cx}
-        cy={cy}
-        r={r}
-        fill="none"
-        stroke="rgba(0,0,0,.18)"
-        strokeWidth="2"
-      />
-      <circle
-        cx={cx}
-        cy={cy}
-        r={r}
-        fill="none"
-        stroke="rgba(0,0,0,.75)"
-        strokeWidth="4"
-        strokeLinecap="round"
-        strokeDasharray={`${c}`}
-        strokeDashoffset={`${dash}`}
-        transform={`rotate(-90 ${cx} ${cy})`}
-      />
-    </svg>
-  );
+function formatMMSS(sec) {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-/* ---------- Sound Engine (WebAudio) ---------- */
-function useSoundEngine(sound, running) {
-  const ctxRef = useRef(null);
-  const nodesRef = useRef({ gain: null, osc: null, noise: null, filter: null });
+const css = `
+  .mPage{ max-width:1200px; margin:0 auto; padding:26px 18px 40px; font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; color:#0b1220; }
+  .mTop{ display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:16px; }
+  .mKicker{ font-size:12px; letter-spacing:.18em; color:#6b7280; }
+  .mH1{ font-size:44px; line-height:1.02; margin-top:8px; font-weight:900; letter-spacing:-.02em; }
+  .mLead{ margin-top:10px; color:#6b7280; font-size:16px; }
+  .mTopRight{ text-align:right; display:flex; flex-direction:column; gap:10px; align-items:flex-end; }
+  .mMetaRow{ color:#4b5563; font-size:13px; }
+  .mTiny{ font-size:12px; color:#6b7280; }
+  .mStrong{ font-weight:800; color:#111827; }
+  .mDot{ color:#9ca3af; margin:0 8px; }
+  .mIntentPill{ display:inline-flex; align-items:center; gap:10px; padding:10px 12px; border:1px solid #e5e7eb; border-radius:999px; background:#fff; }
 
-  const ensure = async () => {
-    if (sound === "Silence") return;
-    if (!ctxRef.current) {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      ctxRef.current = new AC();
-    }
-    if (ctxRef.current.state === "suspended") {
-      try { await ctxRef.current.resume(); } catch {}
-    }
-  };
+  .mGrid{ display:grid; grid-template-columns:1.2fr .8fr; gap:14px; align-items:start; }
+  .mField{ border:1px solid #e5e7eb; border-radius:18px; background:#fff; min-height:520px; display:flex; flex-direction:column; align-items:center; justify-content:center; position:relative; overflow:hidden; }
+  .mAura{ width:min(560px,92%); aspect-ratio:1/1; border-radius:999px; background:radial-gradient(circle at 50% 45%, rgba(17,24,39,.06), rgba(17,24,39,.03) 45%, rgba(17,24,39,.015) 68%, rgba(255,255,255,0) 72%); display:grid; place-items:center; }
+  .mAuraInner{ width:74%; aspect-ratio:1/1; border-radius:999px; background:radial-gradient(circle at 50% 40%, rgba(17,24,39,.08), rgba(17,24,39,.04) 55%, rgba(255,255,255,1) 72%); border:1px solid rgba(17,24,39,.08); display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:18px; }
+  .mBig{ font-size:30px; font-weight:1000; letter-spacing:.14em; color:#111827; }
+  .mSub{ margin-top:10px; color:#6b7280; font-size:14px; line-height:1.5; }
+  .mTimer{ margin-top:16px; font-weight:900; letter-spacing:-.02em; color:#111827; }
+  .mHint{ position:absolute; bottom:16px; color:#6b7280; font-size:13px; }
 
-  const stopSoft = () => {
-    const ctx = ctxRef.current;
-    const { gain, osc, noise } = nodesRef.current;
-    if (!ctx || !gain) return;
+  .mPanel{ border:1px solid #e5e7eb; border-radius:18px; background:#fff; padding:14px; position:sticky; top:12px; }
+  .mPanelTitle{ font-weight:900; letter-spacing:.16em; font-size:13px; color:#111827; margin-bottom:10px; }
+  .mCard{ border:1px solid #eef2f7; border-radius:16px; padding:12px; background:linear-gradient(180deg, rgba(249,250,251,.75), rgba(255,255,255,1)); margin-bottom:12px; }
+  .mCardTitle{ font-weight:900; letter-spacing:.18em; font-size:12px; color:#111827; margin-bottom:10px; }
+  .mPills{ display:flex; gap:10px; flex-wrap:wrap; }
+  .mPill{ height:36px; padding:0 14px; border-radius:999px; border:1px solid #e5e7eb; background:#fff; font-weight:800; cursor:pointer; }
+  .mPill.active{ border-color:#111827; box-shadow:0 0 0 4px rgba(17,24,39,.08); }
+  .mTiny2{ font-size:12px; color:#6b7280; margin-top:10px; }
 
-    const t = ctx.currentTime;
-    gain.gain.cancelScheduledValues(t);
-    gain.gain.setValueAtTime(gain.gain.value, t);
-    gain.gain.linearRampToValueAtTime(0.0001, t + 0.35);
+  .mActions{ display:flex; gap:10px; flex-wrap:wrap; margin-top:6px; margin-bottom:10px; }
+  .mBtn{ height:38px; padding:0 14px; border-radius:999px; border:1px solid #e5e7eb; background:#fff; font-weight:800; cursor:pointer; }
+  .mBtnPrimary{ width:120px; height:44px; border:none; border-radius:14px; background:#0b1220; color:#fff; font-weight:900; cursor:pointer; box-shadow:0 10px 18px rgba(17,24,39,.15); }
+  .mBtnPrimary:hover{ opacity:.92; }
+  .mBtnDark{ height:38px; padding:0 14px; border-radius:999px; border:1px solid rgba(11,15,26,.12); background:#0b1220; color:#fff; font-weight:900; cursor:pointer; }
 
-    setTimeout(() => {
-      try { osc?.stop?.(); } catch {}
-      try { noise?.stop?.(); } catch {}
-      nodesRef.current = { gain: null, osc: null, noise: null, filter: null };
-    }, 450);
-  };
+  .mAudioRow{ display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .mVolRow{ margin-top:12px; display:flex; align-items:center; gap:10px; }
 
-  const start = async () => {
-    if (sound === "Silence") return;
-    await ensure();
-    const ctx = ctxRef.current;
-    if (!ctx) return;
+  .mCore{ margin-top:14px; border:1px solid #eef2f7; border-radius:16px; padding:12px; background:#fff; }
+  .mCoreK{ font-size:12px; letter-spacing:.18em; color:#9ca3af; font-weight:900; }
+  .mCoreT{ margin-top:8px; font-size:13px; color:#111827; font-weight:800; line-height:1.5; }
 
-    // already started?
-    if (nodesRef.current.gain) return;
-
-    const gain = ctx.createGain();
-    gain.gain.value = 0.0001;
-    gain.connect(ctx.destination);
-
-    // Soft drone / Deep space
-    if (sound === "Soft drone" || sound === "Deep space") {
-      const osc = ctx.createOscillator();
-      osc.type = "sine";
-      osc.frequency.value = sound === "Deep space" ? 56 : 72;
-
-      const filter = ctx.createBiquadFilter();
-      filter.type = "lowpass";
-      filter.frequency.value = sound === "Deep space" ? 220 : 420;
-      filter.Q.value = sound === "Deep space" ? 1.2 : 0.8;
-
-      osc.connect(filter);
-      filter.connect(gain);
-      osc.start();
-
-      nodesRef.current = { gain, osc, noise: null, filter };
-    } else {
-      // fallback: gentle noise (if you later add "Ocean breath" etc.)
-      const bufferSize = 2 * ctx.sampleRate;
-      const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
-      const data = buffer.getChannelData(0);
-      for (let i = 0; i < bufferSize; i++) data[i] = (Math.random() * 2 - 1) * 0.12;
-
-      const noise = ctx.createBufferSource();
-      noise.buffer = buffer;
-      noise.loop = true;
-
-      const filter = ctx.createBiquadFilter();
-      filter.type = "lowpass";
-      filter.frequency.value = 180;
-
-      noise.connect(filter);
-      filter.connect(gain);
-      noise.start();
-
-      nodesRef.current = { gain, osc: null, noise, filter };
-    }
-
-    // fade in
-    const t = ctx.currentTime;
-    gain.gain.linearRampToValueAtTime(0.045, t + 0.6);
-  };
-
-  const restartIfNeeded = async () => {
-    stopSoft();
-    await start();
-  };
-
-  useEffect(() => {
-    // running + not silence => keep sound alive
-    if (sound === "Silence") {
-      stopSoft();
-      return;
-    }
-    if (running) start();
-    else stopSoft();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sound, running]);
-
-  useEffect(() => {
-    // cleanup on unmount
-    return () => stopSoft();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  return { stopSoft, restartIfNeeded };
-}
-
-/* ---------- copy helpers ---------- */
-function intentLabel(x) {
-  if (x === "peace") return "Peace";
-  if (x === "unity") return "Unity";
-  if (x === "awareness") return "Awareness";
-  if (x === "compassion") return "Compassion";
-  return "Presence";
-}
-
-function phaseLabel(p) {
-  if (p === "arriving") return "Arriving";
-  if (p === "closing") return "Closing";
-  return "Breathing";
-}
-
-function inhaleLine(intent) {
-  if (intent === "peace") return "Inhale — invite quiet into the inner sea.";
-  if (intent === "unity") return "Inhale — remember the whole.";
-  if (intent === "awareness") return "Inhale — open the seeing.";
-  if (intent === "compassion") return "Inhale — soften and include.";
-  return "Inhale — stay with the breath.";
-}
-
-function exhaleLine(intent) {
-  if (intent === "peace") return "Exhale — release the ripple.";
-  if (intent === "unity") return "Exhale — loosen separation.";
-  if (intent === "awareness") return "Exhale — let grasping fall away.";
-  if (intent === "compassion") return "Exhale — offer gentleness outward.";
-  return "Exhale — return to presence.";
-}
-
-function clamp(x, a, b) {
-  return Math.max(a, Math.min(b, x));
-}
+  @media (max-width:980px){
+    .mTop{ flex-direction:column; }
+    .mTopRight{ text-align:left; align-items:flex-start; }
+    .mGrid{ grid-template-columns:1fr; }
+    .mPanel{ position:relative; top:0; }
+    .mField{ min-height:420px; }
+  }
+`;
