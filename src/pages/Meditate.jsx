@@ -9,6 +9,17 @@ const SOUND_MAP = {
   Rain: "/audio/ambient/rain.mp3",
   Wind: "/audio/ambient/wind.mp3",
   "Brown Noise": "/audio/ambient/brown-noise.mp3",
+
+  // ✅ Meditation library (matches your /public/audio structure)
+  "Forest Calm": "/audio/meditation/nature/forest-calm.mp3",
+  "Night Insects": "/audio/meditation/nature/night-insects.mp3",
+  "Stream Flow": "/audio/meditation/nature/stream-flow.mp3",
+
+  "Deep Space Drone": "/audio/meditation/space/deep-space-drone.mp3",
+  "Starlight Pad": "/audio/meditation/space/starlight-pad.mp3",
+
+  "Binaural (gentle)": "/audio/meditation/tones/binaural-gentle.mp3",
+  "Soft Drone": "/audio/meditation/tones/soft-drone.mp3",
 };
 
 const CADENCES = [
@@ -24,7 +35,10 @@ export default function Meditate() {
   const intent = state?.intent ?? "awareness";
   const durationMin = Number(state?.durationMin ?? 10);
   const mode = state?.mode ?? "Solo (in the Field)";
+
+  // ✅ prefer soundSrc from Session (most reliable), fallback to label mapping
   const sound = state?.sound ?? "Silence";
+  const soundSrcFromState = state?.soundSrc ?? null;
 
   const totalSec = useMemo(() => Math.max(60, durationMin * 60), [durationMin]);
   const [secLeft, setSecLeft] = useState(totalSec);
@@ -36,14 +50,16 @@ export default function Meditate() {
   const cadence = useMemo(() => CADENCES.find((c) => c.key === cadenceKey) ?? CADENCES[1], [cadenceKey]);
 
   // audio
-  const audioSrc = SOUND_MAP[sound] ?? null;
+  const audioSrc = useMemo(() => soundSrcFromState ?? SOUND_MAP[sound] ?? null, [soundSrcFromState, sound]);
   const [vol, setVol] = useState(0.35);
   const [audioOn, setAudioOn] = useState(false);
 
   const intentLabel = useMemo(() => {
-    const map = { peace: "Peace", unity: "Unity", awareness: "Awareness", compassion: "Compassion" };
+    const map = { peace: "Peace", unity: "Unity", awareness: "Awareness", compassion: "Compassion", love: "Love" };
     return map[intent] ?? "Awareness";
   }, [intent]);
+
+  const isCollective = useMemo(() => String(mode).toLowerCase().includes("collect"), [mode]);
 
   const centerLabel = useMemo(() => {
     if (phase === "ARRIVING") return "ARRIVING";
@@ -52,7 +68,7 @@ export default function Meditate() {
   }, [phase, running]);
 
   function getSubtitle() {
-    if (phase === "ARRIVING") return "Nothing is required. Only attention.";
+    if (phase === "ARRIVING") return "A gentle arrival. Nothing to achieve.";
     if (phase === "COMPLETE") return "Thank you. The field remembers you.";
     return `Inhale ${cadence.inhale}s · Exhale ${cadence.exhale}s`;
   }
@@ -104,7 +120,7 @@ export default function Meditate() {
     setPhase("COMPLETE");
     setRunning(false);
 
-    // product choice: end -> silence
+    // end -> silence
     pauseAmbient();
     setAudioOn(false);
   }, [secLeft, phase]);
@@ -163,18 +179,26 @@ export default function Meditate() {
       <div className="mTop">
         <div>
           <div className="mKicker">MEDITATION</div>
-          <div className="mH1">Enter the Field</div>
-          <div className="mLead">Breathe. Notice. Return.</div>
+
+          {/* ✅ Updated Ritual Header (no more "Enter the Field") */}
+          <div className="mH1 mH1Ritual">The Field Is Open</div>
+          <div className="mLead">Stay with the breath. Let everything be included.</div>
         </div>
 
         <div className="mTopRight">
           <div className="mMetaRow">
             <span className="mTiny">Sound:</span> <span className="mStrong">{sound}</span>
           </div>
+
           <div className="mIntentPill">
             <span className="mStrong">{intentLabel}</span>
             <span className="mDot">•</span>
             <span className="mTiny">{durationMin} min</span>
+          </div>
+
+          <div className="mBadgeRow">
+            <span className="mBadge">{isCollective ? "Collective" : "Solo"}</span>
+            <span className={`mBadge ${audioSrc ? "on" : ""}`}>{audioSrc ? "Audio Enabled" : "Silence"}</span>
           </div>
         </div>
       </div>
@@ -297,14 +321,36 @@ const css = `
   .mPage{ max-width:1200px; margin:0 auto; padding:26px 18px 40px; font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; color:#0b1220; }
   .mTop{ display:flex; align-items:flex-start; justify-content:space-between; gap:16px; margin-bottom:16px; }
   .mKicker{ font-size:12px; letter-spacing:.18em; color:#6b7280; }
+
   .mH1{ font-size:44px; line-height:1.02; margin-top:8px; font-weight:900; letter-spacing:-.02em; }
-  .mLead{ margin-top:10px; color:#6b7280; font-size:16px; }
+  /* ✅ Ritual tone: slightly smaller than big hero, still strong */
+  .mH1Ritual{
+    font-size:38px;
+    line-height:1.04;
+    letter-spacing:-0.02em;
+  }
+
+  .mLead{ margin-top:10px; color:#6b7280; font-size:16px; max-width: 700px; }
+
   .mTopRight{ text-align:right; display:flex; flex-direction:column; gap:10px; align-items:flex-end; }
   .mMetaRow{ color:#4b5563; font-size:13px; }
   .mTiny{ font-size:12px; color:#6b7280; }
   .mStrong{ font-weight:800; color:#111827; }
   .mDot{ color:#9ca3af; margin:0 8px; }
   .mIntentPill{ display:inline-flex; align-items:center; gap:10px; padding:10px 12px; border:1px solid #e5e7eb; border-radius:999px; background:#fff; }
+
+  .mBadgeRow{ display:flex; gap:10px; flex-wrap:wrap; justify-content:flex-end; }
+  .mBadge{
+    height:34px; padding:0 14px; border-radius:999px;
+    border:1px solid #e5e7eb; background:#fff;
+    display:inline-flex; align-items:center;
+    font-weight:850; font-size:12.5px; color:#111827;
+    box-shadow: 0 10px 20px rgba(17,24,39,.06);
+  }
+  .mBadge.on{
+    border-color:#111827;
+    box-shadow: 0 0 0 4px rgba(17,24,39,.08), 0 14px 26px rgba(17,24,39,.10);
+  }
 
   .mGrid{ display:grid; grid-template-columns:1.2fr .8fr; gap:14px; align-items:start; }
   .mField{ border:1px solid #e5e7eb; border-radius:18px; background:#fff; min-height:520px; display:flex; flex-direction:column; align-items:center; justify-content:center; position:relative; overflow:hidden; }
@@ -340,8 +386,10 @@ const css = `
   @media (max-width:980px){
     .mTop{ flex-direction:column; }
     .mTopRight{ text-align:left; align-items:flex-start; }
+    .mBadgeRow{ justify-content:flex-start; }
     .mGrid{ grid-template-columns:1fr; }
     .mPanel{ position:relative; top:0; }
     .mField{ min-height:420px; }
+    .mH1Ritual{ font-size:34px; }
   }
 `;
