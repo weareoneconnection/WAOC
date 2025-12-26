@@ -23,7 +23,12 @@ const INTENTS = [
 
 /**
  * ✅ Sound Library
- * /public/audio/... (keep your existing structure)
+ * Must be under /public/audio/...
+ * Your current folders:
+ * /public/audio/ambient/*.mp3
+ * /public/audio/meditation/nature/*.mp3
+ * /public/audio/meditation/space/*.mp3
+ * /public/audio/meditation/tones/*.mp3
  */
 const SOUND_LIBRARY = [
   { group: "Silence", items: [{ key: "silence", label: "Silence (no audio)", src: null }] },
@@ -33,7 +38,8 @@ const SOUND_LIBRARY = [
       { key: "ocean", label: "Ocean", src: "/audio/ambient/ocean.mp3" },
       { key: "rain", label: "Rain", src: "/audio/ambient/rain.mp3" },
       { key: "wind", label: "Wind", src: "/audio/ambient/wind.mp3" },
-      { key: "brown", label: "Brown Noise", src: "/audio/ambient/brown noise.mp3" },
+      // ✅ file name has space: "brown noise.mp3"
+      { key: "brown", label: "Brown Noise", src: "/audio/ambient/brown-noise.mp3" },
     ],
   },
   {
@@ -155,7 +161,10 @@ export default function Session() {
     return it ?? { label: "Silence (no audio)", src: null };
   }, [groupItems, soundKey]);
 
-  const soundSrc = selectedSound.src ?? null;
+  // ✅ FIX 1: encodeURI to support file names like "brown noise.mp3"
+  const soundSrcRaw = selectedSound.src ?? null;
+  const soundSrc = soundSrcRaw ? encodeURI(soundSrcRaw) : null;
+
   const soundLabel = selectedSound.label ?? "Silence (no audio)";
   const showPlayer = !!soundSrc;
 
@@ -174,7 +183,7 @@ export default function Session() {
         durationMin,
         mode,
         sound: soundSrc ? soundLabel : "Silence",
-        soundSrc,
+        soundSrc, // encoded (safe)
       },
     });
   }
@@ -189,7 +198,8 @@ export default function Session() {
       startUTC: dtStart,
       endUTC: dtEnd,
       url: window.location.origin + "/session",
-      rrule: "FREQ=WEEKLY;BYDAY=SU;BYHOUR=20;BYMINUTE=0;BYSECOND=0",
+      // ✅ FIX 2: Apple Calendar friendly RRULE (time comes from DTSTART)
+      rrule: "FREQ=WEEKLY;BYDAY=SU",
     });
 
     const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
@@ -266,9 +276,12 @@ export default function Session() {
           <div className="anchorRight">
             <div className="tiny">Next gathering</div>
             <div className="countdown">{anchorInfo.countdown}</div>
+
+            {/* 保留你按钮结构，只增强兼容（逻辑已修） */}
             <button className="ghost" onClick={downloadICS}>
               Add to calendar
             </button>
+
             <div className="hint">{enterHint}</div>
           </div>
         </div>
@@ -296,7 +309,7 @@ export default function Session() {
               ))}
             </div>
 
-            {/* ✅ Intent statement */}
+            {/* Intent statement */}
             <div className="statementCard">
               <div className="statementKicker">Intent Statement</div>
               <div className="statementText">{statement}</div>
@@ -334,7 +347,7 @@ export default function Session() {
               </div>
             </div>
 
-            {/* Cleaner music block */}
+            {/* Music block */}
             <div className="music">
               <div className="musicHead">
                 <div className="label">Field Environment</div>
@@ -471,8 +484,13 @@ function getFieldState(msLeft) {
   return "Dormant";
 }
 
+/**
+ * ✅ Apple Calendar friendly ICS:
+ * - RRULE only defines weekly day; time comes from DTSTART.
+ * - add X-WR-CALNAME / X-WR-TIMEZONE / STATUS / SEQUENCE / URL;VALUE=URI for broader compatibility.
+ */
 function buildICS({ title, description, startUTC, endUTC, url, rrule }) {
-  const uid = `waoc-${startUTC.getTime()}@waoc`;
+  const uid = `waoc-${startUTC.getTime()}-${Math.random().toString(16).slice(2)}@waoc.app`;
   const dtstamp = toICSDate(new Date());
   const dtstart = toICSDate(startUTC);
   const dtend = toICSDate(endUTC);
@@ -483,14 +501,18 @@ function buildICS({ title, description, startUTC, endUTC, url, rrule }) {
     "PRODID:-//WAOC//Meditation//EN",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
+    "X-WR-CALNAME:WAOC Global Sit",
+    "X-WR-TIMEZONE:UTC",
     "BEGIN:VEVENT",
     `UID:${uid}`,
     `DTSTAMP:${dtstamp}`,
     `DTSTART:${dtstart}`,
     `DTEND:${dtend}`,
+    "STATUS:CONFIRMED",
+    "SEQUENCE:0",
     `SUMMARY:${escapeICS(title)}`,
     `DESCRIPTION:${escapeICS(description)}`,
-    `URL:${escapeICS(url)}`,
+    `URL;VALUE=URI:${escapeICS(url)}`,
     `RRULE:${rrule}`,
     "END:VEVENT",
     "END:VCALENDAR",
@@ -577,6 +599,7 @@ const css = `
 
   .anchorRight{ text-align:right; min-width:210px; display:flex; flex-direction:column; align-items:flex-end; gap:8px; }
   .countdown{ font-weight:950; font-size:18px; letter-spacing:-.02em; color:#111827; }
+
   .ghost{
     height:34px; padding:0 12px; border-radius:999px;
     border:1px solid #e5e7eb; background:#fff; cursor:pointer;
