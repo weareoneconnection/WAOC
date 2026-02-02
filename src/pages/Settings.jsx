@@ -4,15 +4,12 @@ import React, { useMemo, useState } from "react";
 function GlowBG() {
   return (
     <div className="pointer-events-none absolute inset-0 overflow-hidden">
-      {/* Deep space base */}
       <div className="absolute inset-0 bg-[#05060A]" />
 
-      {/* Soft nebula glows */}
       <div className="absolute -top-32 left-1/2 h-[520px] w-[820px] -translate-x-1/2 rounded-full bg-white/5 blur-3xl" />
       <div className="absolute top-24 -left-40 h-[420px] w-[420px] rounded-full bg-white/4 blur-3xl" />
       <div className="absolute bottom-0 -right-52 h-[520px] w-[520px] rounded-full bg-white/4 blur-3xl" />
 
-      {/* Star noise */}
       <div
         className="absolute inset-0 opacity-[0.25]"
         style={{
@@ -22,7 +19,6 @@ function GlowBG() {
         }}
       />
 
-      {/* Top divider glow */}
       <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/20 to-transparent" />
     </div>
   );
@@ -31,10 +27,9 @@ function GlowBG() {
 function Card({ title, hint, children }) {
   return (
     <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-white/[0.04] shadow-[0_10px_30px_rgba(0,0,0,0.35)] backdrop-blur">
-      {/* subtle inner glow */}
       <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-white/[0.06] to-transparent" />
       <div className="relative px-5 pt-5 pb-3">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3">
           <h2 className="text-sm font-semibold text-white/90">{title}</h2>
           {hint ? <span className="text-xs text-white/45">{hint}</span> : null}
         </div>
@@ -105,7 +100,6 @@ function Pill({ children }) {
 function IconMark() {
   return (
     <div className="relative grid h-10 w-10 place-items-center rounded-2xl border border-white/10 bg-white/[0.06]">
-      {/* energy ring */}
       <div className="pointer-events-none absolute inset-0 rounded-2xl shadow-[0_0_0_1px_rgba(255,255,255,0.08),0_0_40px_rgba(255,255,255,0.06)]" />
       <span className="text-sm font-semibold text-white/90">W</span>
     </div>
@@ -136,26 +130,81 @@ function GhostBtn({ children, onClick }) {
   );
 }
 
-export default function Settings() {
-  // demo states (后续接入真实钱包/存储)
-  const [connected, setConnected] = useState(false);
-  const [address, setAddress] = useState("0x9cB7…41A2");
-  const [network, setNetwork] = useState("Solana");
+function Note({ children }) {
+  return <div className="text-xs text-white/45 leading-relaxed">{children}</div>;
+}
 
-  const [theme, setTheme] = useState("dark"); // light | dark | system
+export default function Settings() {
+  // ✅ Local-only demo states (后续可接入 localStorage)
+  const [theme, setTheme] = useState("dark"); // system | dark | light
   const [reduceMotion, setReduceMotion] = useState(false);
+  const [highContrast, setHighContrast] = useState(false);
 
   const [defaultDuration, setDefaultDuration] = useState("10");
   const [defaultIntent, setDefaultIntent] = useState("awareness");
   const [sound, setSound] = useState("silence");
+  const [fadeInSound, setFadeInSound] = useState(true);
 
   const [notifySessionEnd, setNotifySessionEnd] = useState(true);
   const [notifyCollective, setNotifyCollective] = useState(false);
 
   const [shareApproxLocation, setShareApproxLocation] = useState(true);
   const [analytics, setAnalytics] = useState(false);
+  const [autoSaveLocal, setAutoSaveLocal] = useState(true);
 
-  const profileTitle = useMemo(() => (connected ? "Wallet Connected" : "Connect Wallet"), [connected]);
+  const profileTitle = useMemo(() => "Local Preferences", []);
+
+  function exportSettings() {
+    const data = {
+      theme,
+      reduceMotion,
+      highContrast,
+      defaultDuration,
+      defaultIntent,
+      sound,
+      fadeInSound,
+      notifySessionEnd,
+      notifyCollective,
+      shareApproxLocation,
+      analytics,
+      autoSaveLocal,
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "waoc-settings.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function resetDefaults() {
+    setTheme("dark");
+    setReduceMotion(false);
+    setHighContrast(false);
+
+    setDefaultDuration("10");
+    setDefaultIntent("awareness");
+    setSound("silence");
+    setFadeInSound(true);
+
+    setNotifySessionEnd(true);
+    setNotifyCollective(false);
+
+    setShareApproxLocation(true);
+    setAnalytics(false);
+    setAutoSaveLocal(true);
+
+    alert("Reset done (demo).");
+  }
+
+  function clearLocal() {
+    try {
+      localStorage.clear();
+      sessionStorage.clear();
+    } catch {}
+    alert("Local data cleared (demo).");
+  }
 
   return (
     <div className="relative min-h-screen text-white">
@@ -168,73 +217,45 @@ export default function Settings() {
             <IconMark />
             <div>
               <h1 className="text-lg font-semibold text-white/90">Settings</h1>
-              <p className="text-xs text-white/45">WAOC Meditation · We Are One Connection</p>
+              <p className="text-xs text-white/45">WAOC Meditation · Calm defaults</p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <GhostBtn onClick={() => alert("Saved (demo). 你可接入真实保存逻辑。")}>Save</GhostBtn>
-            <PrimaryBtn onClick={() => alert("Sync (demo). 后续可用于链上/云端同步。")}>Sync</PrimaryBtn>
+            <GhostBtn onClick={exportSettings}>Export</GhostBtn>
+            <PrimaryBtn
+              onClick={() =>
+                alert(
+                  "Applied (demo). 你可以在这里接入 localStorage / context，把默认值带入 Session & Library。"
+                )
+              }
+            >
+              Apply
+            </PrimaryBtn>
           </div>
         </div>
       </div>
 
       {/* Content */}
       <div className="mx-auto grid max-w-5xl grid-cols-1 gap-4 px-5 py-6 lg:grid-cols-2">
-        {/* Account */}
-        <Card title="Account" hint="Wallet identity">
+        {/* Profile / Local */}
+        <Card title="Preferences" hint="Local-only">
           <Row
             label={profileTitle}
-            desc={
-              connected
-                ? "Your wallet is your identity. No email. No ranks. Connection is the proof."
-                : "Login with wallet to access resonance features."
-            }
-            right={
-              connected ? (
-                <GhostBtn onClick={() => setConnected(false)}>Disconnect</GhostBtn>
-              ) : (
-                <PrimaryBtn onClick={() => setConnected(true)}>Connect</PrimaryBtn>
-              )
-            }
+            desc="No login. No identity. These settings live on this device."
+            right={<Pill>Private</Pill>}
           />
-
-          {connected ? (
-            <>
-              <Row
-                label="Network"
-                desc="Select the chain context for WAOC."
-                right={
-                  <Select
-                    ariaLabel="Network"
-                    value={network}
-                    onChange={setNetwork}
-                    options={[
-                      { value: "Solana", label: "Solana" },
-                      { value: "BSC", label: "BSC" },
-                      { value: "Ethereum", label: "Ethereum (later)" },
-                    ]}
-                  />
-                }
-              />
-              <Row
-                label="Address"
-                desc="Always displayed as truncated."
-                right={
-                  <div className="flex items-center gap-2">
-                    <Pill>{address}</Pill>
-                    <GhostBtn
-                      onClick={() => {
-                        navigator.clipboard?.writeText(address);
-                      }}
-                    >
-                      Copy
-                    </GhostBtn>
-                  </div>
-                }
-              />
-            </>
-          ) : null}
+          <Row
+            label="Auto-save locally"
+            desc="When enabled, changes can be persisted on this browser."
+            right={<Toggle ariaLabel="Auto-save locally" checked={autoSaveLocal} onChange={setAutoSaveLocal} />}
+          />
+          <div className="py-4">
+            <Note>
+              Connection is the proof — not an account. <br />
+              You can export preferences if you want portability.
+            </Note>
+          </div>
         </Card>
 
         {/* Appearance */}
@@ -260,6 +281,11 @@ export default function Settings() {
             desc="Lower animation intensity."
             right={<Toggle ariaLabel="Reduce motion" checked={reduceMotion} onChange={setReduceMotion} />}
           />
+          <Row
+            label="High contrast"
+            desc="Stronger text and edges."
+            right={<Toggle ariaLabel="High contrast" checked={highContrast} onChange={setHighContrast} />}
+          />
         </Card>
 
         {/* Meditation defaults */}
@@ -275,8 +301,10 @@ export default function Settings() {
                 options={[
                   { value: "5", label: "5 min" },
                   { value: "10", label: "10 min" },
+                  { value: "12", label: "12 min" },
                   { value: "15", label: "15 min" },
                   { value: "20", label: "20 min" },
+                  { value: "30", label: "30 min" },
                 ]}
               />
             }
@@ -294,16 +322,17 @@ export default function Settings() {
                   { value: "peace", label: "Peace" },
                   { value: "unity", label: "Unity" },
                   { value: "compassion", label: "Compassion" },
+                  { value: "love", label: "Love" },
                 ]}
               />
             }
           />
           <Row
-            label="Sound"
-            desc="Your default soundscape."
+            label="Default sound"
+            desc="Silence is valid."
             right={
               <Select
-                ariaLabel="Sound"
+                ariaLabel="Default sound"
                 value={sound}
                 onChange={setSound}
                 options={[
@@ -311,10 +340,19 @@ export default function Settings() {
                   { value: "tone", label: "Soft Tone" },
                   { value: "rain", label: "Rain" },
                   { value: "ocean", label: "Ocean" },
+                  { value: "space", label: "Deep Space" },
                 ]}
               />
             }
           />
+          <Row
+            label="Fade-in sound"
+            desc="Start audio gently."
+            right={<Toggle ariaLabel="Fade-in sound" checked={fadeInSound} onChange={setFadeInSound} />}
+          />
+          <div className="py-4">
+            <Note>Enter as you are. Nothing here measures you.</Note>
+          </div>
         </Card>
 
         {/* Notifications */}
@@ -329,6 +367,9 @@ export default function Settings() {
             desc="Resonance waves & community sits (optional)."
             right={<Toggle ariaLabel="Collective events" checked={notifyCollective} onChange={setNotifyCollective} />}
           />
+          <div className="py-4">
+            <Note>Silence counts as participation.</Note>
+          </div>
         </Card>
 
         {/* Privacy */}
@@ -349,61 +390,30 @@ export default function Settings() {
             desc="Anonymous metrics to improve the app."
             right={<Toggle ariaLabel="Analytics" checked={analytics} onChange={setAnalytics} />}
           />
+          <div className="py-4">
+            <Note>No addresses. No ranks. No counts.</Note>
+          </div>
         </Card>
 
-        {/* Security & About */}
-        <Card title="Security & About" hint="Support">
-          <Row
-            label="Export settings"
-            desc="Download your preferences as JSON."
-            right={
-              <GhostBtn
-                onClick={() => {
-                  const data = {
-                    theme,
-                    reduceMotion,
-                    defaultDuration,
-                    defaultIntent,
-                    sound,
-                    notifySessionEnd,
-                    notifyCollective,
-                    shareApproxLocation,
-                    analytics,
-                    network: connected ? network : null,
-                  };
-                  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement("a");
-                  a.href = url;
-                  a.download = "waoc-settings.json";
-                  a.click();
-                  URL.revokeObjectURL(url);
-                }}
-              >
-                Export
-              </GhostBtn>
-            }
-          />
+        {/* Data & About */}
+        <Card title="Data & About" hint="Support">
           <Row
             label="Reset to defaults"
             desc="Restore recommended values."
+            right={<GhostBtn onClick={resetDefaults}>Reset</GhostBtn>}
+          />
+          <Row
+            label="Clear local data"
+            desc="Remove preferences and local history on this browser."
+            danger
             right={
-              <GhostBtn
-                onClick={() => {
-                  setTheme("dark");
-                  setReduceMotion(false);
-                  setDefaultDuration("10");
-                  setDefaultIntent("awareness");
-                  setSound("silence");
-                  setNotifySessionEnd(true);
-                  setNotifyCollective(false);
-                  setShareApproxLocation(true);
-                  setAnalytics(false);
-                  alert("Reset done (demo).");
-                }}
+              <button
+                type="button"
+                className="h-9 rounded-xl bg-red-500/90 px-3 text-sm text-white hover:opacity-90"
+                onClick={clearLocal}
               >
-                Reset
-              </GhostBtn>
+                Clear
+              </button>
             }
           />
           <Row label="App version" desc="WAOC Meditation Web" right={<Pill>v0.1</Pill>} />
@@ -412,26 +422,9 @@ export default function Settings() {
             desc="Report an issue or suggest a feature."
             right={<PrimaryBtn onClick={() => alert("Support (demo). 可接入 TG/Discord/Email")}>Contact</PrimaryBtn>}
           />
-          <Row
-            label="Danger zone"
-            desc="Clear local data on this browser."
-            danger
-            right={
-              <button
-                type="button"
-                className="h-9 rounded-xl bg-red-500/90 px-3 text-sm text-white hover:opacity-90"
-                onClick={() => {
-                  try {
-                    localStorage.clear();
-                    sessionStorage.clear();
-                  } catch {}
-                  alert("Local data cleared (demo).");
-                }}
-              >
-                Clear data
-              </button>
-            }
-          />
+          <div className="py-4">
+            <Note>The field does not require loyalty.</Note>
+          </div>
         </Card>
       </div>
 

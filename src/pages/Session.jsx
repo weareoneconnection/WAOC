@@ -1,6 +1,6 @@
 // src/pages/Session.jsx
 import React, { useMemo, useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import CollectiveResonanceField from "../components/CollectiveResonanceField.jsx";
 import AudioPlayer from "../components/AudioPlayer.jsx";
 
@@ -68,7 +68,7 @@ const SOUND_LIBRARY = [
 
 const ANCHOR = {
   dayOfWeek: 0, // Sunday
-  hourUTC: 20,
+  hourUTC: 12,
   minuteUTC: 0,
   title: "WAOC Global Sit",
   subtitle: "One World · One Breath · One Field",
@@ -182,8 +182,18 @@ export default function Session() {
         intent,
         durationMin,
         mode,
+
+        // ✅ 给 Finish/ProofCard 用的“仪式名”（先用 intentTitle 作为 ritualName）
+        ritualName: `${intentTitle} Field`,
+
+        // ✅ 先给一个默认 cadence（你 Meditate 页如果有选择，再覆盖）
+        cadence: "4–6",
+
         sound: soundSrc ? soundLabel : "Silence",
         soundSrc, // encoded (safe)
+
+        // ✅ 可选：给 proof 卡做可复现变化（不含用户信息）
+        variantSeed: `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`,
       },
     });
   }
@@ -227,7 +237,13 @@ export default function Session() {
       {/* Top */}
       <div className="topRow">
         <div>
-          <div className="kicker">COLLECTIVE RESONANCE</div>
+          {/* ✅ 方案A：显性入口 */}
+          <div className="kicker">
+            <Link to="/field" className="fieldEntry">
+              ENTER THE FIELD
+            </Link>
+          </div>
+
           <div className="h1">We Are One Connection</div>
           <div className="lead">You are not alone here. The field listens, even in silence.</div>
         </div>
@@ -262,7 +278,7 @@ export default function Session() {
             <div className="anchorMeta">
               <span className="strong">Every Sunday</span>
               <span className="dot">•</span>
-              <span className="strong">20:00 UTC</span>
+              <span className="strong">12:00 UTC</span>
               <span className="dot">•</span>
               <span className="tiny">{anchorInfo.localLabel}</span>
             </div>
@@ -278,9 +294,16 @@ export default function Session() {
             <div className="countdown">{anchorInfo.countdown}</div>
 
             {/* 保留你按钮结构，只增强兼容（逻辑已修） */}
-            <button className="ghost" onClick={downloadICS}>
-              Add to calendar
-            </button>
+            <div className="anchorActions">
+              <button className="ghost" onClick={downloadICS}>
+                Add to calendar
+              </button>
+
+              {/* ✅ Proof of Presence 入口（放在 Anchor 位置，页面更干净） */}
+              <button className="presenceAnchorBtn" onClick={() => nav("/field")} title="Proof of Presence">
+                Proof of Presence
+              </button>
+            </div>
 
             <div className="hint">{enterHint}</div>
           </div>
@@ -548,6 +571,17 @@ const css = `
     color:#0b1220;
   }
 
+  /* ✅ 方案A：Field入口样式（新增，不影响其它结构） */
+  .fieldEntry{
+    font-size:12px;
+    letter-spacing:.18em;
+    color:#6b7280;
+    text-decoration:none;
+  }
+  .fieldEntry:hover{
+    color:#111827;
+  }
+
   .kicker{ font-size:12px; letter-spacing:.18em; color:#6b7280; }
   .h1{ font-size:34px; line-height:1.12; margin-top:10px; font-weight:900; letter-spacing:-.02em; }
   .lead{ margin-top:10px; color:#4b5563; font-size:15.5px; }
@@ -607,6 +641,29 @@ const css = `
   }
   .ghost:hover{ border-color:#cbd5e1; }
   .hint{ font-size:12px; color:#6b7280; max-width:260px; text-align:right; }
+
+  /* ✅ Anchor actions row (new, does not change structure elsewhere) */
+  .anchorActions{
+    display:flex;
+    gap:10px;
+    align-items:center;
+  }
+
+  /* ✅ Proof of Presence button (new) */
+  .presenceAnchorBtn{
+    height:34px;
+    padding:0 14px;
+    border-radius:999px;
+    border:none;
+    background:#0b1220;
+    color:#fff;
+    cursor:pointer;
+    font-weight:950;
+    font-size:12.5px;
+    box-shadow: 0 10px 18px rgba(17,24,39,.15);
+    white-space:nowrap;
+  }
+  .presenceAnchorBtn:hover{ opacity:.92; }
 
   .grid{
     display:grid;
@@ -734,6 +791,7 @@ const css = `
     .anchor{ flex-direction:column; }
     .anchorRight{ text-align:left; align-items:flex-start; min-width:auto; }
     .hint{ text-align:left; }
+    .anchorActions{ width:100%; }
     .grid{ grid-template-columns: 1fr; }
     .rightTop{ grid-template-columns: 1fr; }
     .musicPick{ grid-template-columns: 1fr; }

@@ -3,6 +3,22 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { playAmbient, pauseAmbient, setAmbientVolume, isPlaying } from "../utils/audioEngine.js";
 
+/** ---------------- tiny helpers (no tracking, local only) ---------------- */
+function makeVariantSeed() {
+  return `${Date.now().toString(16)}-${Math.random().toString(16).slice(2)}`;
+}
+
+function intentToRitualName(intent) {
+  const map = {
+    peace: "Quiet the Inner Sea",
+    unity: "One Breath, One Field",
+    awareness: "Wide Seeing",
+    compassion: "Soft Holding",
+    love: "Open Heart Field",
+  };
+  return map[intent] ?? "Silent Circle";
+}
+
 const SOUND_MAP = {
   Silence: null,
   Ocean: "/audio/ambient/ocean.mp3",
@@ -40,13 +56,19 @@ export default function Meditate() {
   const sound = state?.sound ?? "Silence";
   const soundSrcFromState = state?.soundSrc ?? null;
 
+  // ✅ (NEW) keep a stable seed for proof card across this session
+  const variantSeed = useMemo(() => state?.variantSeed ?? makeVariantSeed(), [state?.variantSeed]);
+
+  // ✅ (NEW) ritualName for finish/proofcard
+  const ritualName = useMemo(() => state?.ritualName ?? intentToRitualName(intent), [state?.ritualName, intent]);
+
   const totalSec = useMemo(() => Math.max(60, durationMin * 60), [durationMin]);
   const [secLeft, setSecLeft] = useState(totalSec);
   const [running, setRunning] = useState(true);
   const [phase, setPhase] = useState("ARRIVING"); // ARRIVING | RUNNING | COMPLETE
   const tickRef = useRef(null);
 
-  const [cadenceKey, setCadenceKey] = useState("4-6");
+  const [cadenceKey, setCadenceKey] = useState(state?.cadence ?? "4-6");
   const cadence = useMemo(() => CADENCES.find((c) => c.key === cadenceKey) ?? CADENCES[1], [cadenceKey]);
 
   // audio
@@ -144,6 +166,7 @@ export default function Meditate() {
 
   function onBack() {
     pauseAmbient();
+    // ✅ keep config if you want (optional), but we keep behavior same: return to /session
     nav("/session");
   }
 
@@ -160,7 +183,24 @@ export default function Meditate() {
   function onFinish() {
     pauseAmbient();
     setAudioOn(false);
-    nav("/session");
+
+    // ✅ NEW: jump to Finish page (Proof Card + Share + Closing line)
+    const endedAt = Date.now();
+
+    nav("/finish", {
+      state: {
+        // carry over the same “session summary”
+        intent,
+        ritualName,
+        durationMinutes: durationMin,
+        durationMin, // keep both for compatibility
+        mode,
+        cadence: cadenceKey,
+        sound: audioSrc ? sound : "Silence",
+        endedAt,
+        variantSeed,
+      },
+    });
   }
 
   async function toggleAudio() {
